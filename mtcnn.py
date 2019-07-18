@@ -5,8 +5,10 @@
 # --------------------------------------------------------
 
 """Build mtcnn network."""
+import time
 from tqdm import tqdm
 import math
+import cv2
 import numpy as np
 import smnet as sm
 
@@ -19,7 +21,7 @@ class PNet(object):
                  batch_size=32,
                  iou_thrs=0.5,
                  scale_factor=0.79,
-                 max_size=512):
+                 max_size=512,):
         """Init PNet   
 
         As we use param 'SAME' in the max pool layer, the receptive field
@@ -36,24 +38,27 @@ class PNet(object):
         self.prior_boxes = {}
         self.cell_size = 13
         self.sizelist = self._get_size_list(self.max_size)
+        #print(self.sizelist)
 
         self._setup()
+        self.sess = sm.Session()
 
     
     def _setup(self):
         """Prebuild the pnet network."""
-        x = sm.Tensor()
-        gt_conf = sm.Tensor()
-        gt_box = sm.Tensor() 
-        gt_landmark = sm.Tensor() 
-        conf_mask = sm.Tensor() 
-        box_mask = sm.Tensor() 
-        landmark_mask = sm.Tensor()
-        conf, box, landmark = pnet(x)
-        conf_loss, box_loss, landmark_loss = pnet_loss(conf, box, landmark, 
-                                                       gt_conf, gt_box, 
-                                                       gt_landmark, conf_mask, 
-                                                       box_mask, landmark_mask)
+        self.x = sm.Tensor()
+        self.gt_conf = sm.Tensor()
+        self.gt_box = sm.Tensor() 
+        self.gt_landmark = sm.Tensor() 
+        self.conf_mask = sm.Tensor() 
+        self.box_mask = sm.Tensor() 
+        self.landmark_mask = sm.Tensor()
+        self.conf, self.box, self.landmark = pnet(self.x)
+        self.conf_loss, self.box_loss, self.landmark_loss = pnet_loss(
+            self.conf, self.box, self.landmark, 
+            self.gt_conf, self.gt_box, 
+            self.gt_landmark, self.conf_mask, 
+            self.box_mask, self.landmark_mask)
 
 
     def _get_size_list(self, max_size):
@@ -61,8 +66,8 @@ class PNet(object):
         sizelist = []
         size = 12
         while size < max_size:
-            sizelist.append((size, size))
-            size *= self.scale_factor
+            sizelist.append((round(size), round(size)))
+            size /= self.scale_factor
 
         return sizelist
 
@@ -78,7 +83,8 @@ class PNet(object):
         """
         h, w = image.shape[:2]
         scale = min(size[0] / h, size[1] / w)
-        scale_h, scale_w = h * scale, w *scale
+        # use round to keep accurate
+        scale_h, scale_w = round(h * scale), round(w *scale)
         image = cv2.resize(image, (scale_w, scale_h))
         return image, scale
 
@@ -90,6 +96,7 @@ class PNet(object):
             image: str or numpy array. If str, read the image to numpy.
             size: (int, int), h, w
         """
+        #print(image)
         if isinstance(image, str):
             image = cv2.imread(image)
 
@@ -122,6 +129,9 @@ class PNet(object):
         
         Args:
             size: (int, int), the input image size for network.
+
+        Returns:
+            prior_boxes: numpy array, [h, w, 4]
         """
         size = tuple(size)
         if size not in self.prior_boxes:
@@ -135,7 +145,7 @@ class PNet(object):
             x2 = np.tile(x2.reshape(1, w), (h, 1))
             y1 = np.tile(y1.reshape(h, 1), (1, w))
             y2 = np.tile(y2.reshape(h, 1), (1, w))
-            prior_boxes = np.stack([x1, y1, x2, y2], -1).reshape(-1, 4)
+            prior_boxes = np.stack([x1, y1, x2, y2], -1).reshape(h, w, 4)
 
             self.prior_boxes[size] = prior_boxes
         
@@ -163,29 +173,36 @@ class PNet(object):
         labels = labels * scales
 
         # [h * w, 4]
-        h, w = size
         prior_boxes = self._get_prior_box(size)
+        h, w, _ = prior_boxes.shape
         confidences = []
         bbox_offsets = []
+        landmarks = []
         for boxes in labels:
             # [h * w, n]
+            #print('prior shape:',prior_boxes.shape)
+            #print(boxes.shape)
             overlap_scores = bbox_overlap(prior_boxes, boxes)
+            #print(overlap_scores.shape)
             overlap_ids = np.argmax(overlap_scores, -1)  # [h * w]
             overlap_scores = np.max(overlap_scores, -1)  # [h * w]
             keep = overlap_scores > self.iou_thrs  # [h * w]
 
             confidence = keep.reshape(h, w)
-            confidence = np.stack([conf_mask, 1 - conf_mask], -1)
+            confidence = np.stack([confidence, 1 - confidence], -1)
 
             correspond_bbox = boxes[overlap_ids]
             bbox_offset = (correspond_bbox - prior_boxes) / self.cell_size
             bbox_offset = bbox_offset.reshape(h, w, 4)
 
             # TODO: landmark label
+            landmark = np.empty(shape=(h, w, 10))
+
             confidences.append(confidence)
             bbox_offsets.append(bbox_offset)
+            landmarks.append(landmark)
         
-        return np.array(confidences), np.array(bbox_offsets)
+        return np.array(confidences), np.array(bbox_offsets), np.array(landmarks)
 
 
     def _check_label_value(self, confidence):
@@ -210,15 +227,17 @@ class PNet(object):
         """
         n, h, w, _ = confidences.shape
 
-        confidence = confidence[..., 0]
-        face_cnt = np.sum(confidence)
-        no_face_cnt = confidence.size - face_cnt
+        confidences = confidences[..., 0]
+        face_cnt = np.sum(confidences)
+        no_face_cnt = confidences.size - face_cnt
 
-        conf_mask = np.where(confidence==1, 1/face_cnt, 1/no_face_cnt)
-        box_mask = 0.25 * 0.5 * 1 / face_cnt
-        box_mask = np.full(box_mask, [n, h, w, 4])
+        conf_mask = np.where(confidences==1, 0.5/face_cnt, 0.5/no_face_cnt)
+        conf_mask = np.stack([conf_mask] * 2, -1)
+        scale = 0.25 * 0.5 * 1 / face_cnt
+        box_mask = np.stack([scale * confidences] * 4, -1)
+        landmark_mask = np.stack([scale * confidences] * 10, -1)
 
-        return conf_mask, box_mask
+        return conf_mask, box_mask, landmark_mask
 
 
     def train(self, train_datas, epoch, lr):
@@ -230,14 +249,55 @@ class PNet(object):
             lr: float
         """
         for step in range(epoch):
-            pbar = tqdm(train_datas)
-            for datas, labels in train_datas:
-                for size in self.sizelist:
+            #print('Step:', step)
+            conf_losses, box_losses, landmark_losses = [], [], []
+            for size in self.sizelist:
+                #print('size:', size)
+                pbar = tqdm(train_datas(self.batch_size))
+                for datas, labels in pbar:
+                    t1 = time.time()
                     images, scales = list(zip(*[self._preprocess(data, size) 
                                                 for data in datas]))
-                    confidences, bbox_offsets = self._process_labels(labels, 
-                                                                     scales, 
-                                                                     size)
+                    t2 = time.time()
+                    images, scales = np.array(images), np.array(scales)
+                    t3 = time.time()
+                    #print(images)
+                    #print(images.shape)
+                    #print(scales)
+                    #print(scales.shape)
+                    confidences, bbox_offsets, landmarks = self._process_labels(
+                                                                    labels, 
+                                                                    scales, 
+                                                                    size)
+                    t4 = time.time()
+                    #print(confidences)
+                    #print(bbox_offsets)
+                    #pbar.set_description('time: {}'.format((t2 - t1, t3 - t2, t4 - t3)))
                     if not self._check_label_value(confidences):
-                        pass
-                    conf_mask, box_mask = self._create_mask(confidences)
+                        continue
+                    t5 = time.time()
+                    conf_mask, box_mask, landmark_mask = self._create_mask(confidences)
+                    t6 = time.time()
+                    #print(conf_mask)
+                    #print(box_mask)
+                    conf_loss, box_loss, landmark_loss = self.sess.forward([
+                                  self.conf_loss, 
+                                  self.box_loss, 
+                                  self.landmark_loss], 
+                                 {self.x: images, 
+                                  self.gt_conf: confidences,
+                                  self.gt_box: bbox_offsets,
+                                  self.gt_landmark: landmarks,
+                                  self.conf_mask: conf_mask,
+                                  self.box_mask: box_mask,
+                                  self.landmark_mask: landmark_mask})
+                    conf_loss, box_loss, landmark_loss = np.sum(conf_loss), np.sum(box_loss), np.sum(landmark_loss)
+                    conf_losses.append(conf_loss) 
+                    box_losses.append(box_loss) 
+                    landmark_losses.append(landmark_loss)
+
+                    pbar.set_description('step: {}, size: {}, conf loss: {}, '
+                                        'box loss: {}, landmark loss: {}'.format(
+                                            step, size, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses)))
+                    
+

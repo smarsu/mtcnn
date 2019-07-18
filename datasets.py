@@ -117,8 +117,8 @@ class WiderFace(Dataset):
         labels = []
         idx = 0
         while idx < len(lines):
-            image_path = lines[idx]
-            images.append(image_path)
+            image_path = lines[idx].strip()
+            images.append(self._real_image_path(image_path))
             idx += 1
 
             num = int(lines[idx])
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     wider = WiderFace('/datasets/wider/images', 
                       '/datasets/wider/wider_face_split')
     t1 = time.time()
-    for data, label in wider.train_datas(1):
+    for data, label in wider.train_datas(32):
         print(data, label)
     t2 = time.time()
-    print('Time for read wider dataset:', t2 - t1)  # 3.6073758602142334s with `print`
+    print('Time for read wider dataset:', t2 - t1)  # 2.467153787612915s with `print`
