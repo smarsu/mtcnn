@@ -25,8 +25,8 @@ if __name__ == '__main__':
         if net == 'pnet':
             pnet = PNet()
             # 0.8780253_1_0.1_pnet.npz the last size of step 1 for lr 0.1.
-            pnet.sess.restore(osp.join(pnet.model_root, '0.8780253_1_0.1_pnet.npz'))
-            pnet.train(widerface.train_datas, 10, lr=0.01)
+            pnet.sess.restore(osp.join(pnet.model_root, '0.6516562_(127, 127)_1_0.01_pnet.npz'))
+            pnet.train(widerface.train_datas, 10, lr=0.001)
             # pnet.train(widerface.train_datas_debug, 100, lr=0.1)
             conf, box = pnet.test(widerface.train_datas_debug(1)[0][0][0])
             print(conf)
@@ -61,9 +61,10 @@ if __name__ == '__main__':
 
         if net == 'pnet':
             image = widerface.train_datas_debug(1)[0][0][0]
-            pnet = PNet(conf_thrs=0.9)
-            pnet.sess.restore(osp.join(pnet.model_root, '0.67729115_(12, 12)_1_0.01_pnet.npz'))
-            conf, box = pnet.test(widerface.train_datas_debug(1)[0][0][0])
+            image = 'data/demo/face.jpg'
+            pnet = PNet(conf_thrs=0.98)
+            pnet.sess.restore(osp.join(pnet.model_root, '0.6142132_(203, 203)_2_0.001_pnet.npz'))
+            conf, box = pnet.test(image)
             print(conf)
             print(box)
             bboxs = box.astype(np.int32)
