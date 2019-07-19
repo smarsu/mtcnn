@@ -20,6 +20,30 @@ class Dataset(object):
         raise NotImplementedError
 
 
+    def train_datas_debug(self, batch_size):
+        """Yield batch size train datas per step. 
+
+        Train datas should be shuffled.
+        
+        Args:
+            batch_size: int, > 0
+        """
+        if not isinstance(batch_size, int):
+            raise ValueError('In Dataset, batch_size should be int, get '
+                             '{}'.format(type(batch_size)))
+        if batch_size <= 0:
+            raise ValueError('In Dataset, batch_size should larger equal to '
+                             '1, get {}'.format(batch_size))
+        
+        indices = list(range(batch_size))
+        
+        datas = []
+        # for label, we have box and landmark which is 0.
+        datas.append([self._train_datas[:batch_size], 
+                      self._train_labels[:batch_size]])
+        return datas
+
+
     def train_datas(self, batch_size):
         """Yield batch size train datas per step. 
 

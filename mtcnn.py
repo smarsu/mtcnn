@@ -21,7 +21,7 @@ class PNet(object):
                  batch_size=32,
                  iou_thrs=0.5,
                  scale_factor=0.79,
-                 max_size=512,):
+                 max_size=224,):
         """Init PNet   
 
         As we use param 'SAME' in the max pool layer, the receptive field
@@ -136,9 +136,9 @@ class PNet(object):
         size = tuple(size)
         if size not in self.prior_boxes:
             h, w = [math.ceil((dim - 2) / 2) - 4 for dim in size]
-            x1 = 2 * np.arange(w) - 1 if w % 2 == 1 else 0
+            x1 = 2 * np.arange(w) - (1 if w % 2 == 1 else 0)
             x2 = x1 + self.cell_size - 1
-            y1 = 2 * np.arange(h) - 1 if h % 2 == 1 else 0
+            y1 = 2 * np.arange(h) - (1 if h % 2 == 1 else 0)
             y2 = y1 + self.cell_size - 1
 
             x1 = np.tile(x1.reshape(1, w), (h, 1))
@@ -251,7 +251,7 @@ class PNet(object):
         for step in range(epoch):
             #print('Step:', step)
             conf_losses, box_losses, landmark_losses = [], [], []
-            for size in self.sizelist:
+            for size in self.sizelist[::-1]:
                 #print('size:', size)
                 pbar = tqdm(train_datas(self.batch_size))
                 for datas, labels in pbar:
@@ -291,6 +291,8 @@ class PNet(object):
                                   self.conf_mask: conf_mask,
                                   self.box_mask: box_mask,
                                   self.landmark_mask: landmark_mask})
+                    self.sess.optimize([self.conf_loss, self.box_loss, self.landmark_loss],
+                                       lr=lr)
                     conf_loss, box_loss, landmark_loss = np.sum(conf_loss), np.sum(box_loss), np.sum(landmark_loss)
                     conf_losses.append(conf_loss) 
                     box_losses.append(box_loss) 
