@@ -24,12 +24,14 @@ class PNet(object):
                  iou_thrs=0.5,
                  nms_thrs=0.5,
                  conf_thrs=0.5,
+                 min_face=20,
                  scale_factor=0.79,
                  min_size=12,
                  max_size=224,
                  no_mask=False,
                  alpha=(1., 0.5, 0.5),
                  rd_size=False,
+                 src_size=False,
                  model_root='data/model',
                  demo_root='data/demo'):
         """Init PNet   
@@ -44,11 +46,13 @@ class PNet(object):
         self.iou_thrs = iou_thrs
         self.nms_thrs = nms_thrs
         self.conf_thrs = conf_thrs
+        self.min_face = min_face
         self.scale_factor = scale_factor
         self.min_size = min_size
         self.max_size = max_size
         self.no_mask = no_mask
         self.rd_size = rd_size
+        self.src_size = src_size
         self.alpha = alpha
         self.model_root = model_root
         self.demo_root = demo_root
@@ -90,6 +94,16 @@ class PNet(object):
         return sizelist
 
 
+    def get_max_size(self, images):
+        """
+        Args:
+            images: list of ndarray
+        """
+        sizes = [image.shape[:2] for image in images]  # [n, 2]
+        h, w = np.max(sizes, 0)  # [2]
+        return h, w
+
+
     def resize(self, image, size):
         """Resize image size to `size`
         
@@ -102,7 +116,7 @@ class PNet(object):
         h, w = image.shape[:2]
         scale = min(size[0] / h, size[1] / w)
         # use round to keep accurate
-        scale_h, scale_w = round(h * scale), round(w * scale)
+        scale_h, scale_w = int(round(h * scale)), int(round(w * scale))
         image = cv2.resize(image, (scale_w, scale_h))
         return image, scale
 
@@ -114,11 +128,12 @@ class PNet(object):
             image: str or numpy array. If str, read the image to numpy.
             size: (int, int), h, w
         """
+        size = (round(size[0]), round(size[1]))
         #print(image)
-        if isinstance(image, str):
-            image = cv2.imread(image)
-        else:
-            raise ValueError('image must be a str')
+        #if isinstance(image, str):
+        image = cv2.imread(image) if isinstance(image, str) else image
+        #else:
+            #raise ValueError('image must be a str')
 
         # 1. Resize and pad the image to `size`
         image, scale = self.resize(image, size)
@@ -301,11 +316,14 @@ class PNet(object):
             #print('Step:', step)
             conf_losses, box_losses, landmark_losses = [], [], []
             for size in self.sizelist[::-1]:
-                if self.rd_size:
-                    size = np.random.choice(self.sizelist)
                 #print('size:', size)
                 pbar = tqdm(train_datas(self.batch_size))
                 for datas, labels in pbar:
+                    if self.rd_size:
+                        size = self.sizelist[np.random.choice(len(self.sizelist))]
+                    if self.src_size:
+                        datas = [cv2.imread(image) for image in datas]
+                        size = self.get_max_size(datas)
                     t1 = time.time()
                     images, scales = list(zip(*[self._preprocess(data, size) 
                                                 for data in datas]))
@@ -361,7 +379,8 @@ class PNet(object):
                                             step, size, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses),
                                             times))
 
-                size = 'rand_size'
+                if self.rd_size:
+                    size = 'rand_size'
                 total_loss = np.mean(conf_losses) + np.mean(box_losses) + np.mean(landmark_losses)
                 self.sess.save('/'.join([self.model_root, '{}_{}_{}_{}_{}'.format(str(total_loss), size, step, lr, 'pnet')]))
 
@@ -377,8 +396,13 @@ class PNet(object):
         """
         #debuf
         print(image)
+        image = cv2.imread(image)
         confs, boxs = [], []
-        for size in self.sizelist[::-1]:
+        size = list(image.shape[:2])
+        scale = 12 / self.min_face
+        size[0] *= scale
+        size[1] *= scale
+        while min(size) >= 12:
             images, scales = list(zip(*[self._preprocess(image, size)]))
             # [1, h, w, 3]
             images, scales = np.array(images), np.array(scales)
@@ -401,6 +425,9 @@ class PNet(object):
             boxs.append(box)
             print(conf.shape)
 
+            size[0] *= self.scale_factor
+            size[1] *= self.scale_factor
+
         confs = np.concatenate(confs, 0)
         boxs = np.concatenate(boxs, 0)
         confs, boxs = self._postprocess(confs, boxs)
@@ -409,6 +436,7 @@ class PNet(object):
     
     def _regbox(self, box, size, scale):
         """Regress box."""
+        size = (round(size[0]), round(size[1]))
         box = box.reshape(-1, 4)
         priorbox = self._get_prior_box(size).reshape(-1, 4)
         regbox = (box * self.cell_size + priorbox) / scale

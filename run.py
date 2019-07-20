@@ -28,10 +28,10 @@ if __name__ == '__main__':
                               '/datasets/wider/wider_face_split')
 
         if net == 'pnet':
-            pnet = PNet(batch_size=32, no_mask=True, rd_size=True)
+            pnet = PNet(batch_size=32, no_mask=True, rd_size=False)
             # 0.8780253_1_0.1_pnet.npz the last size of step 1 for lr 0.1.
-            #pnet.sess.restore(osp.join(pnet.model_root, '79.79346_(127, 127)_9_0.0001_pnet.npz'))
-            pnet.train(widerface.train_datas, 100, lr=0.001)
+            pnet.sess.restore(osp.join(pnet.model_root, '23.400742_rand_size_8_0.01_pnet.npz'))
+            pnet.train(widerface.train_datas, 100, lr=0.01)
             # pnet.train(widerface.train_datas_debug, 100, lr=0.1)
             conf, box = pnet.test(widerface.train_datas_debug(1)[0][0][0])
             print(conf)
@@ -93,15 +93,15 @@ if __name__ == '__main__':
         if net == 'pnet':
             image = widerface.train_datas_debug(32)[0][0][0]
             #image = 'data/demo/face.jpg'
-            pnet = PNet(conf_thrs=0.1, nms_thrs=0.5)
-            pnet.sess.restore(osp.join(pnet.model_root, '22.94771_(12, 12)_3_0.001_pnet.npz'))
+            pnet = PNet(conf_thrs=0.01, nms_thrs=0.3, min_face=60)
+            pnet.sess.restore(osp.join(pnet.model_root, '65.45905_rand_size_0_0.01_pnet.npz'))
             conf, box = pnet.test(image)
             print(conf)
             print(box)
             bboxs = box.astype(np.int32)
             image = cv2.imread(image)
             for x1, y1, x2, y2 in bboxs:
-                image = cv2.rectangle(image, (x1, y1), (x2, y2),(0,255,0),2)
+                image = cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.imwrite('/'.join([pnet.demo_root, 'face_result.jpg']), image)
     else:
         raise ValueError('Unsupported argv parse {}, expect '
