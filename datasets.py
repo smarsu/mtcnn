@@ -85,10 +85,11 @@ class WiderFace(Dataset):
             train_image_path: str, the path of train images.
             label_path: str
         """
+        self._data_map = {}
+
         self.train_image_path = train_image_path
         self.label_path = label_path
-        self.train_label_path = osp.join(self.label_path, 
-                                          'wider_face_train_bbx_gt.txt')
+        self.train_label_path = self.label_path
 
         self._train_datas, self._train_labels = self._read_train_datas()
 
@@ -100,6 +101,13 @@ class WiderFace(Dataset):
         Assert the size of self._train_datas and self._train_labels is equal.
         """
         return len(self._train_datas)
+
+
+    def data_map(self, key):
+        """"""
+        if key not in self._data_map:
+            raise KeyError('{} not in the data map.'.format(key))
+        return self._data_map[key]
 
 
     def _real_image_path(self, path):
@@ -159,6 +167,8 @@ class WiderFace(Dataset):
                 idx += 1
         
             labels.append(np.array(labels_))
+
+            self._data_map[self._real_image_path(image_path)] = np.array(labels_)
         return np.array(images), np.array(labels)
 
 

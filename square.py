@@ -13,7 +13,7 @@ def square_boxes(boxes):
     Args:
         boxes: ndarray, [n, 4], [x1, y1, x2, y2]
     """
-    boxes = np.round(boxes)
+    boxes = np.round(boxes.copy())
 
     x1 = boxes[..., 0]
     y1 = boxes[..., 1]

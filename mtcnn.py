@@ -134,7 +134,7 @@ class PNet(object):
             image: str or numpy array. If str, read the image to numpy.
             size: (int, int), h, w
         """
-        size = (round(size[0]), round(size[1]))
+        size = (int(round(size[0])), int(round(size[1])))
         #print(image)
         #if isinstance(image, str):
         image = cv2.imread(image) if isinstance(image, str) else image
@@ -211,6 +211,7 @@ class PNet(object):
         """
         # 1. Scaled label
         # To avoid modify the src box info.
+        size = [int(round(size[0])), int(round(size[1]))]
         scaled_labels = labels * scales
         labels = scaled_labels
 
@@ -259,10 +260,12 @@ class PNet(object):
                 part_mask /= part_cnt
 
             conf_mask = self.alpha[0] * (0.5 * pos_mask + 0.5 * neg_mask)
-            box_mask = self.alpha[1] * part_mask
+            box_mask = self.alpha[1] * 0.25 * part_mask
             conf_mask = np.stack([conf_mask] * 2, -1)
             box_mask = np.stack([box_mask] * 4, -1)
             landmark_mask = self.alpha[2] * np.zeros([h, w, 10])
+            # debug
+            #box_mask = self.alpha[1] * np.zeros([h, w, 4])
 
             confidences.append(confidence)
             bbox_offsets.append(bbox_offset)
@@ -329,13 +332,19 @@ class PNet(object):
             conf_losses, box_losses, landmark_losses = [], [], []
             pbar = tqdm(train_datas(self.batch_size))
             for datas, labels in pbar:
+                datas = [cv2.imread(image) for image in datas]
+                size = list(self.get_max_size(datas))
+                scale = 12 / self.min_face
+                size[0] *= scale
+                size[1] *= scale
+                #while min([int(round(size[0])), int(round(size[1]))]) >= 12:
                 for size in self.sizelist:
                 #print('size:', size)
-                    if self.rd_size:
-                        size = self.sizelist[np.random.choice(len(self.sizelist))]
-                    if self.src_size:
-                        datas = [cv2.imread(image) for image in datas]
-                        size = self.get_max_size(datas)
+                    #if self.rd_size:
+                    #    size = self.sizelist[np.random.choice(len(self.sizelist))]
+                    #if self.src_size:
+                    #    datas = [cv2.imread(image) for image in datas]
+                    #    size = self.get_max_size(datas)
                     t1 = time.time()
                     images, scales = list(zip(*[self._preprocess(data, size) 
                                                 for data in datas]))
@@ -354,6 +363,8 @@ class PNet(object):
                     #print(confidences)
                     #print(bbox_offsets)
                     # debuf
+                    #size[0] *= self.scale_factor
+                    #size[1] *= self.scale_factor
                     if not self._check_label_value(confidences):
                         continue
                     t5 = time.time()
@@ -386,9 +397,9 @@ class PNet(object):
                     times = (t2 - t1, t3 - t2, t4 - t3, t5 - t4, t6 - t5, t7 - t6, t8 - t7)
                     times = [round(time * 1000) for time in times]
 
-                    pbar.set_description('step: {}, size: {}, conf loss: {}, '
+                    pbar.set_description('step: {}, conf loss: {}, '
                                         'box loss: {}, landmark loss: {}, time: {}'.format(
-                                            step, size, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses),
+                                            step, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses),
                                             times))
 
             if self.rd_size:
@@ -529,6 +540,7 @@ class RNet(object):
                  iou_thrs=0.5,
                  conf_thrs=0.5,
                  nms_thrs=0.5,
+                 scale_mask=True,
                  model_root='data/model'):
         """Init RNet"""
         self.batch_size = batch_size
@@ -536,10 +548,12 @@ class RNet(object):
         self.iou_thrs = iou_thrs
         self.conf_thrs = conf_thrs
         self.nms_thrs = nms_thrs
+        self.scale_mask = scale_mask
         self.model_root = model_root
 
-        self.cell_size = 24
+        self.cell_size = input_size[0]
 
+        sm.reset_default_graph()
         self._setup()
         self.sess = sm.Session()
 
@@ -568,55 +582,63 @@ class RNet(object):
 
         Args:
             datas: list of str
-            pnet_boxes: assert the pnet box have been pad to square.
+            pnet_boxes: ndarray, [n, 4] assert the pnet box have been pad to square.
 
         Returns:
             images: ndarray, [n, 24, 24, 3]
         """
         images = []
         for data, box in zip(datas, pnet_boxes):
+            #box = box[0]
             data = cv2.imread(data) if isinstance(data, str) else data
             img_h, img_w, _ = data.shape
-
+            
             x1, y1, x2, y2 = box
             h, w = y2 - y1, x2 - x1
             assert h == w
 
-            zeros = np.zeros(data=(h, w, 3))
-            left = -x1 if x1 < 0 else x1
-            top = -y1 if y1 < 0 else y1
-            right = (x2 - img_w) if x2 > img_w else x2
-            bottom = (y2 - img_h) if y2 > img_h else y2
+            zeros = np.zeros(shape=(h, w, 3))
+            left = -x1 if x1 < 0 else 0
+            top = -y1 if y1 < 0 else 0
+            right = -(x2 - img_w) if x2 > img_w else w
+            bottom = -(y2 - img_h) if y2 > img_h else h
 
-            x1 = max(x1, 0)
-            y1 = max(y1, 0)
-            x2 = min(x2, img_w)
-            y2 = min(y2, img_h)
+            x1 = min(max(x1, 0), img_w)
+            y1 = min(max(y1, 0), img_h)
+            x2 = max(min(x2, img_w), 0)
+            y2 = max(min(y2, img_h), 0)
 
-            zeros[top:bottom, left:right] = (data[y1:y2, x1:x2] / 127.5 - 1.) 
+            #zeros[top:bottom, left:right] = (data[y1:y2, x1:x2] / 127.5 - 1.) 
+            zeros[top:bottom, left:right] = data[y1:y2, x1:x2]
             
             image = cv2.resize(zeros, self.input_size)
+            image = image / 127.5 - 1.
+            #cv2.imwrite(str(box) + '.jpg', cv2.resize(image.astype(np.uint8), (224, 224)))
             images.append(image)
-        
-        return np.stack(images, 0)
+
+        return np.array(images)
 
 
     def _parse_labels(self, datas, pnet_boxes, gtboxes):
         """Parse boxes of pnet output and ground truth box.
         
         Args:
-            priorbox: list of boxes, pnet output, [batch, 4] [x1, y1, x2, y2]
+            datas: strs or ndarray, [n, ...]
+            pnet_boxes: ndarray, [n, 4]
+            gtboxes:
         """
         confidences = []
         bbox_offsets = []
         landmarks = []
-        for data, gtbox in zip(datas, priorbox):
-            ph = gtbox[3] - gtbox[1]
-            pw = gtbox[2] - gtbox[0]
+        for data, pnet_boxe in zip(datas, pnet_boxes):
+            #pnet_boxe = pnet_boxe[0]
+            px1, py1, px2, py2 = pnet_boxe
+            ph = py2 - py1
+            pw = px2 - px1
             assert ph == pw, 'Assert the pnet box have been pad to square.'
 
-            gtbox = gtboxes(data)
-            overlap_scores = bbox_overlap(pbox, gtbox)  # [1, m]
+            gtbox = gtboxes(data)  # [m, 4]
+            overlap_scores = bbox_overlap(pnet_boxe, gtbox)  # [1, m]
             overlap_ids = np.argmax(overlap_scores, -1)  # [1]
             overlap_scores = np.max(overlap_scores, -1)  # [1]
             keep = overlap_scores > self.iou_thrs
@@ -624,10 +646,8 @@ class RNet(object):
             confidence = keep
             confidence = [confidence, 1 - confidence]  # [2]
 
-            x1, y1, x2, y2 = pbox
-            h, w = y2 - y1, x2 - x1
             correspond_bbox = gtbox[overlap_ids]
-            bbox_offset = (correspond_bbox - pbox) / [w, h, w, h]  # [4]
+            bbox_offset = (correspond_bbox - pnet_boxe) / [pw, ph, pw, ph]  # [4]
 
             # TODO: landmark label
             landmark = [0] * 10
@@ -636,7 +656,7 @@ class RNet(object):
             bbox_offsets.append(bbox_offset)
             landmarks.append(landmark)
 
-        return np.array(confidences), np.array(bbox_offsets), np.array(landmarks)
+        return np.array(confidences).squeeze(), np.array(bbox_offsets).squeeze(), np.array(landmarks).squeeze()
 
 
     def _check_label_value(self, confidences):
@@ -651,24 +671,42 @@ class RNet(object):
         return int(np.sum(confidences))
 
 
+    def _check_prebox_value(self, pnet_boxes):
+        """
+        Args:
+            pnet_boxes: [n, 4]
+        """
+        for pbox in pnet_boxes:
+            x1, y1, x2, y2 = pbox
+            if x1 >= x2 or y1 >= y2:
+                return False
+        return True
+
+
     def _create_mask(self, confidences):
         """
         Args:
             confidences: ndarray, [n, 2]
         """
-        conf = confidences[..., 0]
-        face_cnt = np.sum(conf)
-        no_face_cnt = conf.size - face_cnt
+        if self.scale_mask:
+            conf = confidences[..., 0]
+            face_cnt = np.sum(conf)
+            no_face_cnt = conf.size - face_cnt
 
-        conf_mask = np.where(conf==1, 0.5/face_cnt, 0.5/no_face_cnt)
-        conf_mask = np.stack([conf_mask] * 2, -1)
-        box_mask = np.stack([conf / face_cnt] * 4, -1)
-        landmark_mask = np.zeros([self.batch_size, 10])
+            conf_mask = np.where(conf==1, 0.5/face_cnt, 0.5/no_face_cnt)
+            conf_mask = np.stack([conf_mask] * 2, -1)
+            box_mask = np.stack([0.25 * conf / face_cnt] * 4, -1)
+            landmark_mask = np.zeros([self.batch_size, 10])
+        else:
+            conf = confidences[:, 0]
+            conf_mask = 1 * np.ones(shape=[self.batch_size, 2]) / self.batch_size
+            box_mask = 0.5 * np.stack([0.5 * conf] * 4, -1)
+            landmark_mask = np.zeros([self.batch_size, 10])
 
         return conf_mask, box_mask, landmark_mask
 
         
-    def train(self, train_datas, epoch, lr, gtboxes):
+    def train(self, train_datas, epoch, lr, gtboxes, weight_decay=5e-4):
         """Train rnet.
         
         Args:
@@ -683,44 +721,49 @@ class RNet(object):
             conf_losses, box_losses, landmark_losses = [], [], []
             pbar = tqdm(train_datas(self.batch_size))
             for datas, pnet_boxes in pbar:
+                pnet_boxes = pnet_boxes.squeeze()
                 t1 = time.time()
                 confidences, bbox_offsets, landmarks = self._parse_labels(
                     datas, pnet_boxes, gtboxes)
                 t2 = time.time()
                 if not self._check_label_value(confidences):
                     continue
+                if not self._check_prebox_value(pnet_boxes):
+                    continue
                 t3 = time.time()
                 conf_mask, box_mask, landmark_mask = self._create_mask(confidences)
                 t4 = time.time()
                 images = self._preprocess(datas, pnet_boxes)
                 t5 = time.time()
-                conf_loss, box_loss, landmark_loss = self.sess.forward([
-                                self.conf_loss, 
-                                self.box_loss, 
-                                self.landmark_loss], 
-                                {self.x: images, 
-                                self.gt_conf: confidences,
-                                self.gt_box: bbox_offsets,
-                                self.gt_landmark: landmarks,
-                                self.conf_mask: conf_mask,
-                                self.box_mask: box_mask,
-                                self.landmark_mask: landmark_mask})
-                self.sess.optimize([self.conf_loss, self.box_loss, self.landmark_loss],
-                                    lr=lr)
-                t6 = time.time()
-                conf_loss, box_loss, landmark_loss = np.sum(conf_loss), np.sum(box_loss), np.sum(landmark_loss)
-                conf_losses.append(conf_loss) 
-                box_losses.append(box_loss) 
-                landmark_losses.append(landmark_loss)
-                t7 = time.time()
+                #print(images)
+                if True:
+                    conf_loss, box_loss, landmark_loss = self.sess.forward([
+                                    self.conf_loss, 
+                                    self.box_loss, 
+                                    self.landmark_loss], 
+                                    {self.x: images, 
+                                    self.gt_conf: confidences,
+                                    self.gt_box: bbox_offsets,
+                                    self.gt_landmark: landmarks,
+                                    self.conf_mask: conf_mask,
+                                    self.box_mask: box_mask,
+                                    self.landmark_mask: landmark_mask})
+                    self.sess.optimize([self.conf_loss, self.box_loss, self.landmark_loss],
+                                        lr=lr, weight_decay=weight_decay)
+                    t6 = time.time()
+                    conf_loss, box_loss, landmark_loss = np.sum(conf_loss), np.sum(box_loss), np.sum(landmark_loss)
+                    conf_losses.append(conf_loss) 
+                    box_losses.append(box_loss) 
+                    landmark_losses.append(landmark_loss)
+                    t7 = time.time()
 
-                times = (t2 - t1, t3 - t2, t4 - t3, t5 - t4, t6 - t5, t7 - t6)
-                times = [round(time * 1000) for time in times]
+                    times = (t2 - t1, t3 - t2, t4 - t3, t5 - t4, t6 - t5, t7 - t6)
+                    times = [round(time * 1000) for time in times]
 
-                pbar.set_description('step: {}, conf loss: {}, '
-                                     'box loss: {}, landmark loss: {}, time: {}'.format(
-                                        step, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses),
-                                        times))
+                    pbar.set_description('step: {}, conf loss: {}, '
+                                        'box loss: {}, landmark loss: {}, time: {}'.format(
+                                            step, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses),
+                                            times))
             
             total_loss = np.mean(conf_losses) + np.mean(box_losses) + np.mean(landmark_losses)
             self.sess.save('/'.join([self.model_root, '{}_{}_{}_{}'.format(str(total_loss), step, lr, 'rnet')]))
@@ -736,8 +779,10 @@ class RNet(object):
             pboxes: box from pnet.
         """
         pboxes = square_boxes(pboxes)
-        assert isinstance(image, np.ndarray)
-        images = self._preprocess([image] * len(pboxes), [pboxes])
+        print('a2', pboxes)
+        image = cv2.imread(image) if isinstance(image, str) else image
+        images = self._preprocess([image] * len(pboxes), pboxes)
+        print('b', pboxes)
         conf, box, landmark = self.sess.forward([
                         self.conf, 
                         self.box, 
@@ -749,6 +794,9 @@ class RNet(object):
                         self.conf_mask: 0,
                         self.box_mask: 0,
                         self.landmark_mask: 0})
+        confs, boxes = self._postprocess(conf, box, pboxes)
+        print('c', pboxes)
+        return confs, boxes
         
 
     def _postprocess(self, confs, boxes, pboxes):
@@ -762,20 +810,21 @@ class RNet(object):
         # softmax
         confs = np.exp(confs - np.max(confs, -1, keepdims=True))
         confs = confs / np.sum(confs, -1, keepdims=True)     
+        print(boxes)
 
         keep = confs[..., 0] > self.conf_thrs
 
-        confs = confs[..., 0:1][keep]
+        confs = confs[..., 0:1][keep]  # [n, 1]
         boxes = boxes[keep]
         pboxes = pboxes[keep]
 
-        x1, y1, x2, y2 = np.split(pboxes, 4, -1)
-        h, w = y2 - y1, x2 - x1
-        gtboxes = boxes * np.stack([w, h, w, h], -1) + pboxes  # [n, 4]
+        x1, y1, x2, y2 = np.split(pboxes, 4, -1)  # [n, 1], ...
+        h, w = y2 - y1, x2 - x1  # [n, 1], ...
+        gtboxes = boxes * np.concatenate([w, h, w, h], -1) + pboxes  # [n, 4]
 
-        keep = nms(np.concatenate([gtboxes, conf], -1), self.nms_thrs)
+        keep = nms(np.concatenate([gtboxes, confs], -1), self.nms_thrs)
 
         confs = confs[keep]
-        boxes = boxes[keep]
+        boxes = gtboxes[keep]
 
         return confs, boxes
