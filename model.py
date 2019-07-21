@@ -30,11 +30,11 @@ def pnet(x):
     # smnet-cpu only support NHWC in conv and pool
     if sm.net.use_cuda:
         x = sm.transform(x, 'NHWC2NCHW')  
-    x = sm.slim.conv2d(x, 3, 10, 3, 1, padding='VALID', border=0.001)
+    x = sm.slim.conv2d(x, 3, 10, 3, 1, padding='VALID')
     x = sm.max_pool(x, (1, 3, 3, 1), (1, 2, 2, 1), padding='SAME')
-    x = sm.slim.conv2d(x, 10, 16, 3, 1, padding='VALID', border=0.001)
-    x = sm.slim.conv2d(x, 16, 32, 3, 1, padding='VALID', border=0.001)
-    x = sm.slim.conv2d(x, 32, 16, 1, 1, padding='VALID', act=None, border=0.001)
+    x = sm.slim.conv2d(x, 10, 16, 3, 1, padding='VALID')
+    x = sm.slim.conv2d(x, 16, 32, 3, 1, padding='VALID')
+    x = sm.slim.conv2d(x, 32, 16, 1, 1, padding='VALID', act=None)
     if sm.net.use_cuda:
         x = sm.transform(x, 'NCHW2NHWC')  
     conf, box, landmark = sm.split(x, (2, 6, 16), axis=-1)

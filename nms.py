@@ -8,7 +8,7 @@ import numpy as np
 from overlap import bbox_overlap
 
 
-def nms(boxes, thresh):
+def nms(boxes, thresh, topk=None):
     """boxes will be sorted in this function
 
     Args:
@@ -26,6 +26,8 @@ def nms(boxes, thresh):
         ids = np.where(overlaps<thresh)[0]
         order = order[ids + 1]
     
+    if topk:
+        keep = keep[:topk]
     return keep
 
 

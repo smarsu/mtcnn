@@ -28,9 +28,9 @@ if __name__ == '__main__':
                               '/datasets/wider/wider_face_split')
 
         if net == 'pnet':
-            pnet = PNet(batch_size=32, no_mask=True, rd_size=False)
+            pnet = PNet(batch_size=32, no_mask=False, rd_size=False)
             # 0.8780253_1_0.1_pnet.npz the last size of step 1 for lr 0.1.
-            pnet.sess.restore(osp.join(pnet.model_root, '23.400742_rand_size_8_0.01_pnet.npz'))
+            pnet.sess.restore(osp.join(pnet.model_root, '0.591134_(127, 127)_9_0.001_pnet.npz'))
             pnet.train(widerface.train_datas, 100, lr=0.01)
             # pnet.train(widerface.train_datas_debug, 100, lr=0.1)
             conf, box = pnet.test(widerface.train_datas_debug(1)[0][0][0])
@@ -92,9 +92,9 @@ if __name__ == '__main__':
 
         if net == 'pnet':
             image = widerface.train_datas_debug(32)[0][0][0]
-            #image = 'data/demo/face.jpg'
-            pnet = PNet(conf_thrs=0.01, nms_thrs=0.3, min_face=60)
-            pnet.sess.restore(osp.join(pnet.model_root, '65.45905_rand_size_0_0.01_pnet.npz'))
+            image = 'data/demo/face.jpg'
+            pnet = PNet(scale_factor=0.89, conf_thrs=0.95, nms_thrs=0.3, min_face=24, nms_topk=None)
+            pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet.npz'))
             conf, box = pnet.test(image)
             print(conf)
             print(box)

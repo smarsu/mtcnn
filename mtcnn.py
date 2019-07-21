@@ -32,6 +32,7 @@ class PNet(object):
                  alpha=(1., 0.5, 0.5),
                  rd_size=False,
                  src_size=False,
+                 nms_topk=None,
                  model_root='data/model',
                  demo_root='data/demo'):
         """Init PNet   
@@ -54,8 +55,13 @@ class PNet(object):
         self.rd_size = rd_size
         self.src_size = src_size
         self.alpha = alpha
+        self.nms_topk = nms_topk
         self.model_root = model_root
         self.demo_root = demo_root
+
+        self.neg_thrs = 0.3
+        self.pos_thrs = 0.65
+        self.part_thrs = 0.4
 
         self.prior_boxes = {}
         self.cell_size = 13
@@ -225,7 +231,7 @@ class PNet(object):
             #print(overlap_scores.shape)
             overlap_ids = np.argmax(overlap_scores, -1)  # [h * w]
             overlap_scores = np.max(overlap_scores, -1)  # [h * w]
-            keep = overlap_scores > self.iou_thrs  # [h * w]
+            keep = overlap_scores > self.pos_thrs  # [h * w]
 
             confidence = keep.reshape(h, w)
             confidence = np.stack([confidence, 1 - confidence], -1)
@@ -238,29 +244,35 @@ class PNet(object):
             landmark = np.zeros(shape=(h, w, 10))
 
             # mask
-            #mask = overlap_scores.reshape(-1)
-            #keep = keep.reshape(-1)
-            #mask = np.logical_or(mask > 0.65, mask < 0.3).astype(np.float32)
-            #face_mask = np.logical_and(mask==1, keep==1)
-            #noface_mask = np.logical_and(mask==1, keep==0)
-            #face_cnt = np.sum(face_mask)
-            #no_face_cnt = np.sum(noface_mask)
+            pos_mask = (overlap_scores > self.pos_thrs).astype(np.float32)
+            neg_mask = (overlap_scores < self.neg_thrs).astype(np.float32)
+            part_mask = (overlap_scores > self.part_thrs).astype(np.float32)
 
-            #conf_mask = np.where(face_mask==1, mask/face_cnt, mask)
-            #conf_mask = np.where(noface_mask==1, mask/no_face_cnt, mask)
-            #conf_mask = np.stack([conf_mask] * 2, -1).reshape(h, w, 2)
-            #box_mask = np.stack([keep / face_cnt] * 4, -1).reshape(h, w, 4)
-            #landmark_mask = np.zeros([h, w, 10])  # np.stack([scale * confidences] * 10, -1)
+            pos_cnt = np.sum(pos_mask)
+            neg_cnt = np.sum(neg_mask)
+            part_cnt = np.sum(part_mask)
+            if pos_cnt > 0:
+                pos_mask /= pos_cnt
+            if neg_cnt > 0:
+                neg_mask /= neg_cnt
+            if part_cnt > 0:
+                part_mask /= part_cnt
+
+            conf_mask = self.alpha[0] * (0.5 * pos_mask + 0.5 * neg_mask)
+            box_mask = self.alpha[1] * part_mask
+            conf_mask = np.stack([conf_mask] * 2, -1)
+            box_mask = np.stack([box_mask] * 4, -1)
+            landmark_mask = self.alpha[2] * np.zeros([h, w, 10])
 
             confidences.append(confidence)
             bbox_offsets.append(bbox_offset)
             landmarks.append(landmark)
-            #conf_masks.append(conf_mask)
-            #box_masks.append(box_mask)
-            #landmark_masks.append(landmark_mask)
+            conf_masks.append(conf_mask)
+            box_masks.append(box_mask)
+            landmark_masks.append(landmark_mask)
         
-        return np.array(confidences), np.array(bbox_offsets), np.array(landmarks)
-               #np.array(conf_masks), np.array(box_masks), np.array(landmark_masks)
+        return np.array(confidences), np.array(bbox_offsets), np.array(landmarks), \
+               np.array(conf_masks), np.array(box_masks), np.array(landmark_masks)
 
 
     def _check_label_value(self, confidence):
@@ -315,10 +327,10 @@ class PNet(object):
         for step in range(epoch):
             #print('Step:', step)
             conf_losses, box_losses, landmark_losses = [], [], []
-            for size in self.sizelist[::-1]:
+            pbar = tqdm(train_datas(self.batch_size))
+            for datas, labels in pbar:
+                for size in self.sizelist:
                 #print('size:', size)
-                pbar = tqdm(train_datas(self.batch_size))
-                for datas, labels in pbar:
                     if self.rd_size:
                         size = self.sizelist[np.random.choice(len(self.sizelist))]
                     if self.src_size:
@@ -334,7 +346,7 @@ class PNet(object):
                     #print(images.shape)
                     #print(scales)
                     #print(scales.shape)
-                    confidences, bbox_offsets, landmarks = self._process_labels(
+                    confidences, bbox_offsets, landmarks, conf_mask, box_mask, landmark_mask = self._process_labels(
                                                                     labels, 
                                                                     scales, 
                                                                     size)
@@ -345,7 +357,7 @@ class PNet(object):
                     if not self._check_label_value(confidences):
                         continue
                     t5 = time.time()
-                    conf_mask, box_mask, landmark_mask = self._create_mask(confidences)
+                    #conf_mask, box_mask, landmark_mask = self._create_mask(confidences)
                     t6 = time.time()
                     #print(conf_mask)
                     #print(box_mask)
@@ -379,13 +391,14 @@ class PNet(object):
                                             step, size, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses),
                                             times))
 
-                if self.rd_size:
-                    size = 'rand_size'
-                total_loss = np.mean(conf_losses) + np.mean(box_losses) + np.mean(landmark_losses)
-                self.sess.save('/'.join([self.model_root, '{}_{}_{}_{}_{}'.format(str(total_loss), size, step, lr, 'pnet')]))
+            if self.rd_size:
+                size = 'rand_size'
+            size = 'cycle'
+            total_loss = np.mean(conf_losses) + np.mean(box_losses) + np.mean(landmark_losses)
+            self.sess.save('/'.join([self.model_root, '{}_{}_{}_{}_{}'.format(str(total_loss), size, step, lr, 'pnet')]))
 
-                if self.rd_size:
-                    break
+            if self.rd_size:
+                break
 
 
     def test(self, image):
@@ -419,8 +432,12 @@ class PNet(object):
                             self.box_mask: 0,
                             self.landmark_mask: 0})
             conf = conf.reshape(-1, 2)
+            # softmax
+            conf = np.exp(conf - np.max(conf, -1, keepdims=True))
+            conf = conf / np.sum(conf, -1, keepdims=True)
             box = box.reshape(-1, 4)
             box = self._regbox(box, size, scales)
+            conf, box = self._postprocess(conf, box)  # NMS before the last nms
             confs.append(conf)
             boxs.append(box)
             print(conf.shape)
@@ -451,14 +468,14 @@ class PNet(object):
             box: numpy array, [h, w, 4]
 
         Return:
-            conf: [-1]
+            conf: [-1, 2]
             box: [-1, 4]
         """
         confidence = confidence.reshape(-1, 2)
         box = box.reshape(-1, 4)
         # softmax
-        confidence = np.exp(confidence - np.max(confidence, -1, keepdims=True))
-        confidence = confidence / np.sum(confidence, -1, keepdims=True)
+        #confidence = np.exp(confidence - np.max(confidence, -1, keepdims=True))
+        #confidence = confidence / np.sum(confidence, -1, keepdims=True)
         #keep = confidence[..., 0] >= confidence[..., 1]
         keep = confidence[..., 0] > self.conf_thrs
         
@@ -468,11 +485,9 @@ class PNet(object):
         conf = confidence[..., 0][keep]
         box = box[keep]
 
-        print(conf.shape)
-        print(box.shape)
-        keep = nms(np.concatenate([box, conf.reshape(-1, 1)], -1), self.nms_thrs)
+        keep = nms(np.concatenate([box, conf.reshape(-1, 1)], -1), self.nms_thrs, self.nms_topk)
 
-        conf = conf[keep]
+        conf = np.stack([conf[keep]] * 2, -1)
         box = box[keep]
         print(conf.shape)
         print(box.shape)
