@@ -45,7 +45,8 @@ if __name__ == '__main__':
                 '/datasets/wider/wider_face_split/wider_face_train_pbbx_gt.txt')
             pnet = PNet()
             rnet = RNet(scale_mask=False, batch_size=2)
-            rnet.train(widerfacepnet.train_datas, 100, 0.01, widerface.data_map, weight_decay=0)
+            rnet.sess.restore(osp.join(pnet.model_root, '0.06339169_7_0.001_rnet.npz'))
+            rnet.train(widerfacepnet.train_datas, 100, 0.001, widerface.data_map, weight_decay=0)
         else:
             raise NotImplementedError
 
@@ -111,10 +112,10 @@ if __name__ == '__main__':
                 image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 255), 2)
             cv2.imwrite('/'.join([pnet.demo_root, 'face_result.jpg']), image)
         if net == 'rnet':
-            image = widerface.train_datas_debug(32)[0][0][3]
+            image = widerface.train_datas_debug(32)[0][0][0]
             image = 'data/demo/face.jpg'
-            pnet = PNet(scale_factor=0.89, conf_thrs=0.95, nms_thrs=0.1, min_face=24, nms_topk=64)
-            pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet.npz'))
+            pnet = PNet(scale_factor=0.89, conf_thrs=0.96, nms_thrs=0.1, min_face=60, nms_topk=None)
+            pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet_v2.npz'))
             conf, box = pnet.test(image)
             print(conf)
             print(box)
@@ -125,8 +126,8 @@ if __name__ == '__main__':
                 image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 255), 2)
             cv2.imwrite('/'.join([pnet.demo_root, 'p_face_result.jpg']), image)
 
-            rnet = RNet(conf_thrs=0.001)
-            rnet.sess.restore(osp.join(rnet.model_root, '0.7122242_0_0.1_rnet.npz'))
+            rnet = RNet(conf_thrs=0.5)
+            rnet.sess.restore(osp.join(rnet.model_root, '0.022445953_53_0.001_rnet.npz'))
             conf, box = rnet.test(raw_image, bboxs)
             print('RNet result:')
             print(conf)

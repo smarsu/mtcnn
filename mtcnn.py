@@ -70,6 +70,7 @@ class PNet(object):
 
         self._setup()
         self.sess = sm.Session()
+        print(self.sess._variables)
 
     
     def _setup(self):
@@ -715,8 +716,8 @@ class RNet(object):
             landmark_mask = np.zeros([self.batch_size, 10])
         else:
             conf = confidences[..., 0]
-            conf_mask = 0.25 * np.ones(shape=[self.batch_size, 2]) / self.batch_size
-            box_mask = 1 * np.stack([0.5 * conf] * 4, -1)
+            conf_mask = 1 * np.ones(shape=[self.batch_size, 2]) / self.batch_size
+            box_mask = 0.5 * np.stack([0.5 * conf] * 4, -1)
             landmark_mask = np.zeros([self.batch_size, 10])
 
         return conf_mask, box_mask, landmark_mask
