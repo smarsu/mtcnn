@@ -45,7 +45,7 @@ if __name__ == '__main__':
                 '/datasets/wider/wider_face_split/wider_face_train_pbbx_gt.txt')
             pnet = PNet()
             rnet = RNet(scale_mask=False, batch_size=2)
-            rnet.train(widerfacepnet.train_datas, 100, 0.1, widerface.data_map, weight_decay=4e-5)
+            rnet.train(widerfacepnet.train_datas, 100, 0.01, widerface.data_map, weight_decay=0)
         else:
             raise NotImplementedError
 

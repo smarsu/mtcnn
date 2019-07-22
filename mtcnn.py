@@ -537,7 +537,7 @@ class RNet(object):
     def __init__(self, 
                  batch_size=32,
                  input_size=(24, 24),
-                 iou_thrs=0.5,
+                 iou_thrs=0.65,
                  conf_thrs=0.5,
                  nms_thrs=0.5,
                  scale_mask=True,
@@ -550,6 +550,10 @@ class RNet(object):
         self.nms_thrs = nms_thrs
         self.scale_mask = scale_mask
         self.model_root = model_root
+
+        self.neg_thrs = 0.3
+        self.pos_thrs = 0.65
+        self.part_thrs = 0.4
 
         self.cell_size = input_size[0]
 
@@ -630,6 +634,9 @@ class RNet(object):
         confidences = []
         bbox_offsets = []
         landmarks = []
+        conf_masks = []
+        box_masks = []
+        landmark_masks = []
         for data, pnet_boxe in zip(datas, pnet_boxes):
             #pnet_boxe = pnet_boxe[0]
             px1, py1, px2, py2 = pnet_boxe
@@ -652,11 +659,20 @@ class RNet(object):
             # TODO: landmark label
             landmark = [0] * 10
 
+            pos_mask = (overlap_scores > self.pos_thrs).astype(np.float32)
+            neg_mask = (overlap_scores < self.neg_thrs).astype(np.float32)
+            part_mask = (overlap_scores > self.part_thrs).astype(np.float32)
+            landmark_mask = [0] * 10
+
             confidences.append(confidence)
             bbox_offsets.append(bbox_offset)
             landmarks.append(landmark)
+            conf_masks.append([pos_mask + neg_mask, pos_mask + neg_mask])
+            box_masks.append([part_mask, part_mask, part_mask, part_mask])
+            landmark_masks.append(landmark_mask)
 
-        return np.array(confidences).squeeze(), np.array(bbox_offsets).squeeze(), np.array(landmarks).squeeze()
+        return np.array(confidences).squeeze(), np.array(bbox_offsets).squeeze(), np.array(landmarks).squeeze(), \
+               np.array(conf_masks).squeeze(), np.array(box_masks).squeeze(), np.array(landmark_masks).squeeze()
 
 
     def _check_label_value(self, confidences):
@@ -699,8 +715,8 @@ class RNet(object):
             landmark_mask = np.zeros([self.batch_size, 10])
         else:
             conf = confidences[..., 0]
-            conf_mask = 1 * np.ones(shape=[self.batch_size, 2]) / self.batch_size
-            box_mask = 0 * np.stack([0.5 * conf] * 4, -1)
+            conf_mask = 0.25 * np.ones(shape=[self.batch_size, 2]) / self.batch_size
+            box_mask = 1 * np.stack([0.5 * conf] * 4, -1)
             landmark_mask = np.zeros([self.batch_size, 10])
 
         return conf_mask, box_mask, landmark_mask
@@ -721,29 +737,33 @@ class RNet(object):
             conf_losses, box_losses, landmark_losses = [], [], []
             pbar = tqdm(train_datas(self.batch_size))
             for datas, pnet_boxes in pbar:
-                pnet_boxes = pnet_boxes.squeeze()
+                #pnet_boxes = pnet_boxes.squeeze()
+                pnet_boxes = pnet_boxes[:, 0, :]
                 t1 = time.time()
-                confidences, bbox_offsets, landmarks = self._parse_labels(
+                confidences, bbox_offsets, landmarks, conf_mask, box_mask, landmark_mask = self._parse_labels(
                     datas, pnet_boxes, gtboxes)
-                confidences = confidences.reshape(-1, 1, 1, 2)
-                bbox_offsets = bbox_offsets.reshape(-1, 1, 1, 4)
-                landmarks = landmarks.reshape(-1, 1, 1, 10)
+                #confidences = confidences.reshape(-1, 1, 1, 2)
+                #bbox_offsets = bbox_offsets.reshape(-1, 1, 1, 4)
+                #landmarks = landmarks.reshape(-1, 1, 1, 10)
                 t2 = time.time()
                 if not self._check_label_value(confidences):
                     continue
                 if not self._check_prebox_value(pnet_boxes):
                     continue
                 t3 = time.time()
-                conf_mask, box_mask, landmark_mask = self._create_mask(confidences)
-                conf_mask = conf_mask.reshape(-1, 1, 1, 2)
-                box_mask = box_mask.reshape(-1, 1, 1, 4)
-                landmark_mask = landmark_mask.reshape(-1, 1, 1, 10)
+                #conf_mask, box_mask, landmark_mask = self._create_mask(confidences)
+                #conf_mask = conf_mask.reshape(-1, 1, 1, 2)
+                #box_mask = box_mask.reshape(-1, 1, 1, 4)
+                #landmark_mask = landmark_mask.reshape(-1, 1, 1, 10)
                 t4 = time.time()
                 images = self._preprocess(datas, pnet_boxes)
                 t5 = time.time()
                 #print(images)
                 if True:
-                    conf_loss, box_loss, landmark_loss = self.sess.forward([
+                    pconf, pbox, plandmark, conf_loss, box_loss, landmark_loss = self.sess.forward([
+                                    self.conf,
+                                    self.box, 
+                                    self.landmark,
                                     self.conf_loss, 
                                     self.box_loss, 
                                     self.landmark_loss], 
@@ -765,11 +785,11 @@ class RNet(object):
 
                     times = (t2 - t1, t3 - t2, t4 - t3, t5 - t4, t6 - t5, t7 - t6)
                     times = [round(time * 1000) for time in times]
-
+                    #print(images)
                     pbar.set_description('step: {}, conf loss: {}, '
-                                        'box loss: {}, landmark loss: {}, time: {}'.format(
+                                        'box loss: {}, land loss: {}, time: {}, gt_conf: {}, conf: {}'.format(
                                             step, np.mean(conf_losses), np.mean(box_losses), np.mean(landmark_losses),
-                                            times))
+                                            times, confidences.reshape(-1), pconf.reshape(-1)))
             
             total_loss = np.mean(conf_losses) + np.mean(box_losses) + np.mean(landmark_losses)
             self.sess.save('/'.join([self.model_root, '{}_{}_{}_{}'.format(str(total_loss), step, lr, 'rnet')]))
