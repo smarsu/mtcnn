@@ -419,7 +419,7 @@ class PNet(object):
             image: str, path.
         """
         #debuf
-        print(image)
+        #print(image)
         image = cv2.imread(image)
         confs, boxs = [], []
         size = list(image.shape[:2])
@@ -451,7 +451,7 @@ class PNet(object):
             conf, box = self._postprocess(conf, box)  # NMS before the last nms
             confs.append(conf)
             boxs.append(box)
-            print(conf.shape)
+            #print(conf.shape)
 
             size[0] *= self.scale_factor
             size[1] *= self.scale_factor
@@ -490,8 +490,8 @@ class PNet(object):
         #keep = confidence[..., 0] >= confidence[..., 1]
         keep = confidence[..., 0] > self.conf_thrs
         
-        print(confidence[..., 0])
-        print(confidence.shape)
+        #print(confidence[..., 0])
+        #print(confidence.shape)
 
         conf = confidence[..., 0][keep]
         box = box[keep]
@@ -500,8 +500,8 @@ class PNet(object):
 
         conf = np.stack([conf[keep]] * 2, -1)
         box = box[keep]
-        print(conf.shape)
-        print(box.shape)
+        #print(conf.shape)
+        #print(box.shape)
 
         return conf, box
 
@@ -608,11 +608,11 @@ class RNet(object):
             x2 = max(min(x2, img_w), 0)
             y2 = max(min(y2, img_h), 0)
 
-            #zeros[top:bottom, left:right] = (data[y1:y2, x1:x2] / 127.5 - 1.) 
-            zeros[top:bottom, left:right] = data[y1:y2, x1:x2]
+            zeros[top:bottom, left:right] = (data[y1:y2, x1:x2] / 127.5 - 1.) 
+            #zeros[top:bottom, left:right] = data[y1:y2, x1:x2]
             
             image = cv2.resize(zeros, self.input_size)
-            image = image / 127.5 - 1.
+            #image = image / 127.5 - 1.
             #cv2.imwrite(str(box) + '.jpg', cv2.resize(image.astype(np.uint8), (224, 224)))
             images.append(image)
 
@@ -698,9 +698,9 @@ class RNet(object):
             box_mask = np.stack([0.25 * conf / face_cnt] * 4, -1)
             landmark_mask = np.zeros([self.batch_size, 10])
         else:
-            conf = confidences[:, 0]
+            conf = confidences[..., 0]
             conf_mask = 1 * np.ones(shape=[self.batch_size, 2]) / self.batch_size
-            box_mask = 0.5 * np.stack([0.5 * conf] * 4, -1)
+            box_mask = 0 * np.stack([0.5 * conf] * 4, -1)
             landmark_mask = np.zeros([self.batch_size, 10])
 
         return conf_mask, box_mask, landmark_mask
@@ -725,6 +725,9 @@ class RNet(object):
                 t1 = time.time()
                 confidences, bbox_offsets, landmarks = self._parse_labels(
                     datas, pnet_boxes, gtboxes)
+                confidences = confidences.reshape(-1, 1, 1, 2)
+                bbox_offsets = bbox_offsets.reshape(-1, 1, 1, 4)
+                landmarks = landmarks.reshape(-1, 1, 1, 10)
                 t2 = time.time()
                 if not self._check_label_value(confidences):
                     continue
@@ -732,6 +735,9 @@ class RNet(object):
                     continue
                 t3 = time.time()
                 conf_mask, box_mask, landmark_mask = self._create_mask(confidences)
+                conf_mask = conf_mask.reshape(-1, 1, 1, 2)
+                box_mask = box_mask.reshape(-1, 1, 1, 4)
+                landmark_mask = landmark_mask.reshape(-1, 1, 1, 10)
                 t4 = time.time()
                 images = self._preprocess(datas, pnet_boxes)
                 t5 = time.time()

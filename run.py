@@ -45,7 +45,7 @@ if __name__ == '__main__':
                 '/datasets/wider/wider_face_split/wider_face_train_pbbx_gt.txt')
             pnet = PNet()
             rnet = RNet(scale_mask=False, batch_size=2)
-            rnet.train(widerfacepnet.train_datas, 100, 1, widerface.data_map, weight_decay=4e-5)
+            rnet.train(widerfacepnet.train_datas, 100, 0.1, widerface.data_map, weight_decay=4e-5)
         else:
             raise NotImplementedError
 
@@ -73,7 +73,7 @@ if __name__ == '__main__':
                               '/datasets/wider/wider_face_split/wider_face_train_bbx_gt.txt')
         
         if net == 'pnet':
-            pnet = PNet(scale_factor=0.89, conf_thrs=0.8, nms_thrs=0.1, min_face=24, nms_topk=64)
+            pnet = PNet(scale_factor=0.89, conf_thrs=0.95, nms_thrs=0.1, min_face=24, nms_topk=32)
             pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet.npz'))
             with open(osp.join(dataset_root, 
                                'wider_face_split', 
@@ -98,9 +98,9 @@ if __name__ == '__main__':
                               '/datasets/wider/wider_face_split/wider_face_train_bbx_gt.txt')
 
         if net == 'pnet':
-            image = widerface.train_datas_debug(32)[0][0][3]
-            image = 'data/demo/face.jpg'
-            pnet = PNet(scale_factor=0.89, conf_thrs=0.8, nms_thrs=0.1, min_face=24, nms_topk=64)
+            image = widerface.train_datas_debug(32)[0][0][2]
+            #image = 'data/demo/face.jpg'
+            pnet = PNet(scale_factor=0.89, conf_thrs=0.95, nms_thrs=0.1, min_face=24, nms_topk=32)
             pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet.npz'))
             conf, box = pnet.test(image)
             print(conf)
@@ -113,7 +113,7 @@ if __name__ == '__main__':
         if net == 'rnet':
             image = widerface.train_datas_debug(32)[0][0][3]
             image = 'data/demo/face.jpg'
-            pnet = PNet(scale_factor=0.89, conf_thrs=0.8, nms_thrs=0.1, min_face=24, nms_topk=64)
+            pnet = PNet(scale_factor=0.89, conf_thrs=0.95, nms_thrs=0.1, min_face=24, nms_topk=64)
             pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet.npz'))
             conf, box = pnet.test(image)
             print(conf)

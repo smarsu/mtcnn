@@ -65,19 +65,19 @@ def rnet(x):
     """
     if sm.net.use_cuda:
         x = sm.transform(x, 'NHWC2NCHW')
-    x = sm.slim.conv2d(x, 3, 28, 3, 1, padding='VALID')
+    x = sm.slim.conv2d(x, 3, 28, 3, 1, padding='VALID', border=0.001)
     x = sm.max_pool(x, (1, 3, 3, 1), (1, 2, 2, 1), padding='SAME')
-    x = sm.slim.conv2d(x, 28, 48, 3, 1, padding='VALID')
+    x = sm.slim.conv2d(x, 28, 48, 3, 1, padding='VALID', border=0.001)
     x = sm.max_pool(x, (1, 3, 3, 1), (1, 2, 2, 1), padding='VALID')
-    x = sm.slim.conv2d(x, 48, 64, 2, 1, padding='VALID')
+    x = sm.slim.conv2d(x, 48, 64, 2, 1, padding='VALID', border=0.001)
     # use conv2d to replace full-connect
-    x = sm.slim.conv2d(x, 64, 128, 3, 1, padding='VALID')
-    x = sm.slim.conv2d(x, 128, 16, 1, 1, padding='VALID', act=None)
+    x = sm.slim.conv2d(x, 64, 128, 3, 1, padding='VALID', border=0.001)
+    x = sm.slim.conv2d(x, 128, 16, 1, 1, padding='VALID', act=None, border=0.001)
     if sm.net.use_cuda:
         x = sm.transform(x, 'NCHW2NHWC')
     #x = sm.reshape(x, (-1, 128))
     #x = sm.slim.fc(x, 128, 16, bias=True, act=None)
-    x = sm.reshape(x, (-1, 16))
+    #x = sm.reshape(x, (-1, 16))
     conf, box, landmark = sm.split(x, (2, 6, 16), axis=-1)
     return conf, box, landmark
 
@@ -94,6 +94,7 @@ def rnet_loss(conf, box, landmark, gt_conf, gt_box, gt_landmark, conf_mask,
     """
     conf_loss = conf_mask * sm.softmax_cross_entropy_with_logits(labels=gt_conf, 
                                                                  logits=conf)
+    #conf_loss = conf_mask * sm.hse(gt_conf, conf)
     box_loss = box_mask * sm.hse(gt_box, box)
     landmark_loss = landmark_mask * sm.hse(gt_landmark, landmark)
     return conf_loss, box_loss, landmark_loss
