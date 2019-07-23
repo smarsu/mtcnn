@@ -9,7 +9,11 @@ import numpy as np
 
 
 class Dataset(object):
-    """The base class of dataset."""
+    """The base class of dataset.
+    
+    self._train_datas = [n, str]
+    self._train_labels = [n, list of box]
+    """
     def __init__(self):
         pass
 
@@ -72,6 +76,18 @@ class Dataset(object):
             datas.append([self._train_datas[i*batch_size:(i+1)*batch_size], 
                           self._train_labels[i*batch_size:(i+1)*batch_size]])
         return datas
+
+
+    def merge(self, other):
+        """Merge the other datas to self.
+        
+        Args:
+            other: Dataset
+        """
+        self._train_datas = np.concatenate(
+            [self._train_datas, other._train_datas], 0)
+        self._train_labels = np.concatenate(
+            [self._train_labels, other._train_labels], 0)
 
 
 class WiderFace(Dataset):
@@ -176,9 +192,11 @@ if __name__ == '__main__':
     import time
     # Test wider face dataset
     wider = WiderFace('/datasets/wider/images', 
-                      '/datasets/wider/wider_face_split')
+                      '/datasets/wider/wider_face_split/wider_face_train_bbx_gt.txt')
     t1 = time.time()
     for data, label in wider.train_datas(32):
         print(data, label)
     t2 = time.time()
     print('Time for read wider dataset:', t2 - t1)  # 2.467153787612915s with `print`
+    print(type(wider._train_datas))
+    print(type(wider._train_labels))

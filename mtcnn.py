@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import smnet as sm
 
-from model import pnet, pnet_loss, rnet, rnet_loss
+from model import pnet, pnet_loss, rnet, rnet_loss, onet, onet_loss
 from overlap import bbox_overlap
 from nms import nms
 from square import square_boxes
@@ -660,9 +660,9 @@ class RNet(object):
             # TODO: landmark label
             landmark = [0] * 10
 
-            pos_mask = (overlap_scores > self.pos_thrs).astype(np.float32)
-            neg_mask = (overlap_scores < self.neg_thrs).astype(np.float32)
-            part_mask = (overlap_scores > self.part_thrs).astype(np.float32)
+            pos_mask = (overlap_scores > self.pos_thrs).astype(np.float32) * 0.25
+            neg_mask = (overlap_scores < self.neg_thrs).astype(np.float32) * 0.25
+            part_mask = (overlap_scores > self.part_thrs).astype(np.float32) * 0.5
             landmark_mask = [0] * 10
 
             confidences.append(confidence)
@@ -723,7 +723,7 @@ class RNet(object):
         return conf_mask, box_mask, landmark_mask
 
         
-    def train(self, train_datas, epoch, lr, gtboxes, weight_decay=5e-4):
+    def train(self, train_datas, epoch, lr, gtboxes, weight_decay=5e-4, stage='rnet'):
         """Train rnet.
         
         Args:
@@ -793,7 +793,7 @@ class RNet(object):
                                             times, confidences.reshape(-1), pconf.reshape(-1)))
             
             total_loss = np.mean(conf_losses) + np.mean(box_losses) + np.mean(landmark_losses)
-            self.sess.save('/'.join([self.model_root, '{}_{}_{}_{}'.format(str(total_loss), step, lr, 'rnet')]))
+            self.sess.save('/'.join([self.model_root, '{}_{}_{}_{}'.format(str(total_loss), step, lr, stage)]))
 
 
     def test(self, image, pboxes):
@@ -805,11 +805,17 @@ class RNet(object):
             image: str or ndarray.
             pboxes: box from pnet.
         """
+        if not isinstance(image, np.ndarray):
+            raise ValueError('image must be np.ndarray')
+        if not(len(pboxes.shape) == 2 and pboxes.shape[-1] == 4):
+            raise ValueError('pboxes must have shape [n, 4]')
+
+        if not self._check_prebox_value(pboxes):
+            return None, [[0, 0, 0, 0]]
+
         pboxes = square_boxes(pboxes)
-        print('a2', pboxes)
         image = cv2.imread(image) if isinstance(image, str) else image
         images = self._preprocess([image] * len(pboxes), pboxes)
-        print('b', pboxes)
         conf, box, landmark = self.sess.forward([
                         self.conf, 
                         self.box, 
@@ -822,7 +828,6 @@ class RNet(object):
                         self.box_mask: 0,
                         self.landmark_mask: 0})
         confs, boxes = self._postprocess(conf, box, pboxes)
-        print('c', pboxes)
         return confs, boxes
         
 
@@ -837,7 +842,7 @@ class RNet(object):
         # softmax
         confs = np.exp(confs - np.max(confs, -1, keepdims=True))
         confs = confs / np.sum(confs, -1, keepdims=True)     
-        print(boxes)
+        #print(boxes)
 
         keep = confs[..., 0] > self.conf_thrs
 
@@ -855,3 +860,33 @@ class RNet(object):
         boxes = gtboxes[keep]
 
         return confs, boxes
+
+
+class ONet(RNet):
+    def __init__(self, 
+                 batch_size=32,
+                 input_size=(48, 48),
+                 iou_thrs=0.65,
+                 conf_thrs=0.5,
+                 nms_thrs=0.5,
+                 scale_mask=True,
+                 model_root='data/model'):
+        super(ONet, self).__init__(batch_size, input_size, iou_thrs, conf_thrs,
+                                   nms_thrs, scale_mask, model_root)
+
+
+    def _setup(self):
+        """Prebuild the onet network."""
+        self.x = sm.Tensor()
+        self.gt_conf = sm.Tensor()
+        self.gt_box = sm.Tensor() 
+        self.gt_landmark = sm.Tensor() 
+        self.conf_mask = sm.Tensor() 
+        self.box_mask = sm.Tensor() 
+        self.landmark_mask = sm.Tensor()
+        self.conf, self.box, self.landmark = onet(self.x)
+        self.conf_loss, self.box_loss, self.landmark_loss = onet_loss(
+            self.conf, self.box, self.landmark, 
+            self.gt_conf, self.gt_box, 
+            self.gt_landmark, self.conf_mask, 
+            self.box_mask, self.landmark_mask)
