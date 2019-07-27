@@ -101,6 +101,47 @@ def rnet_loss(conf, box, landmark, gt_conf, gt_box, gt_landmark, conf_mask,
     return conf_loss, box_loss, landmark_loss
 
 
+def onet(x):
+    """ONet in MTCNN.
+    
+    Args:
+        x: The input tensor. (n, 48, 48, 3)
+    """
+    if sm.net.use_cuda:
+        x = sm.transform(x, 'NHWC2NCHW')
+    x = sm.slim.conv2d(x, 3, 32, 3, 1, padding='VALID')
+    x = sm.max_pool(x, (1, 3, 3, 1), (1, 2, 2, 1), padding='SAME')
+    x = sm.slim.conv2d(x, 32, 64, 3, 1, padding='VALID')
+    x = sm.max_pool(x, (1, 3, 3, 1), (1, 2, 2, 1), padding='VALID')
+    x = sm.slim.conv2d(x, 64, 64, 3, 1, padding='VALID')
+    x = sm.max_pool(x, (1, 2, 2, 1), (1, 2, 2, 1), padding='SAME')
+    x = sm.slim.conv2d(x, 64, 128, 2, 1, padding='VALID')
+    # use conv2d to replace full-connect
+    x = sm.slim.conv2d(x, 128, 256, 3, 1, padding='VALID')
+    x = sm.slim.conv2d(x, 256, 16, 1, 1, padding='VALID', act=None)
+    if sm.net.use_cuda:
+        x = sm.transform(x, 'NCHW2NHWC')
+    x = sm.reshape(x, (-1, 16))
+    conf, box, landmark = sm.split(x, (2, 6, 16), axis=-1)
+    return conf, box, landmark
+
+
+def onet_loss(conf, box, landmark, gt_conf, gt_box, gt_landmark, conf_mask, 
+              box_mask, landmark_mask):
+    """Create the loss of onet.
+    
+    Args:
+        conf, box, landmark: The output of rnet.
+        gt_conf, gt_box, gt_landmark: ground truth labels.
+        conf_mask, box_mask, landmark_mask: to balance the three loss
+    """
+    conf_loss = conf_mask * sm.softmax_cross_entropy_with_logits(labels=gt_conf, 
+                                                                 logits=conf)
+    box_loss = box_mask * sm.hse(gt_box, box)
+    landmark_loss = landmark_mask * sm.hse(gt_landmark, landmark)
+    return conf_loss, box_loss, landmark_loss
+
+
 def slim_conv2d(x, ci, co, filter_size, stride, padding, bias=True, 
                 act=tf.nn.relu):
     weight = np.random.normal(0, 0.01, (co, ci, filter_size, filter_size))
