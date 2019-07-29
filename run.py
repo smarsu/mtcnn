@@ -200,7 +200,7 @@ if __name__ == '__main__':
             cv2.imwrite('/'.join([pnet.demo_root, 'r_face_result.jpg']), image)
 
             onet = ONet(conf_thrs=0.5)
-            onet.sess.restore(osp.join(onet.model_root, '0.022380685_48_0.01_onet.npz'))
+            onet.sess.restore(osp.join(onet.model_root, '0.012311436_69_0.01_onet.npz'))
             conf, box = onet.test(raw_image, bboxs)
             print('ONet result:')
             print(conf)
