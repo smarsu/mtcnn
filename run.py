@@ -13,6 +13,8 @@ import numpy as np
 from datasets import WiderFace
 from mtcnn import PNet, RNet, ONet
 from square import square_boxes
+from broad import broad_boxes
+from crop import crop
 
 np.random.seed(196)
 
@@ -173,7 +175,7 @@ if __name__ == '__main__':
             cv2.imwrite('/'.join([pnet.demo_root, 'r_face_result.jpg']), image)
         elif net == 'onet':
             image = widerface.train_datas_debug(32)[0][0][6]
-            image = 'data/demo/face.jpg'
+            image = 'data/demo/ffy1.jpg'
             pnet = PNet(scale_factor=0.89, conf_thrs=0.8, nms_thrs=0.5, min_face=60, nms_topk=32)
             pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet_v2.npz'))
             conf, box = pnet.test(image)
@@ -210,6 +212,11 @@ if __name__ == '__main__':
             for x1, y1, x2, y2 in bboxs:
                 image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 255), 2)
             cv2.imwrite('/'.join([pnet.demo_root, 'o_face_result.jpg']), image)
+
+            bboxs = square_boxes(bboxs)
+            bboxs = broad_boxes(bboxs, 0.4)
+            for idx, box in enumerate(bboxs):
+                crop(raw_image.copy(), box, str(idx) + '.jpg')
     else:
         raise ValueError('Unsupported argv parse {}, expect '
                          '[train, check, test]'.format(parse))

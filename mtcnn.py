@@ -559,8 +559,9 @@ class RNet(object):
         self.cell_size = input_size[0]
 
         sm.reset_default_graph()
-        self._setup()
         self.sess = sm.Session()
+        self._setup()
+        #self.sess = sm.Session()
 
     
     def _setup(self):
