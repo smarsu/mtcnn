@@ -5,6 +5,8 @@
 # --------------------------------------------------------
 
 """Crop the face"""
+import os 
+import os.path as osp
 import cv2
 import numpy as np
 
@@ -39,5 +41,8 @@ def crop(cvimg, box, path=None):
     croped_img = zeros
 
     if path:
+        dir = osp.split(path)[0]
+        if not osp.exists(dir):
+            os.makedirs(dir)
         cv2.imwrite(path, croped_img)
     return croped_img

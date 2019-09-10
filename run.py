@@ -175,7 +175,7 @@ if __name__ == '__main__':
             cv2.imwrite('/'.join([pnet.demo_root, 'r_face_result.jpg']), image)
         elif net == 'onet':
             image = widerface.train_datas_debug(32)[0][0][6]
-            image = 'data/demo/ffy1.jpg'
+            image = 'data/demo/syz2.jpg'
             pnet = PNet(scale_factor=0.89, conf_thrs=0.8, nms_thrs=0.5, min_face=60, nms_topk=32)
             pnet.sess.restore(osp.join(pnet.model_root, '3.2153504_cycle_7_0.01_pnet_v2.npz'))
             conf, box = pnet.test(image)

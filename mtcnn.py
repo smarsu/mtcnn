@@ -421,7 +421,7 @@ class PNet(object):
         """
         #debuf
         #print(image)
-        image = cv2.imread(image)
+        image = cv2.imread(image) if isinstance(image, str) else image
         confs, boxs = [], []
         size = list(image.shape[:2])
         scale = 12 / self.min_face
@@ -812,7 +812,10 @@ class RNet(object):
             raise ValueError('pboxes must have shape [n, 4]')
 
         if not self._check_prebox_value(pboxes):
-            return None, [[0, 0, 0, 0]]
+            return np.array([]), np.zeros(shape=[0, 4])
+
+        if len(pboxes) == 0:
+            return np.array([]), np.zeros(shape=[0, 4])
 
         pboxes = square_boxes(pboxes)
         image = cv2.imread(image) if isinstance(image, str) else image
